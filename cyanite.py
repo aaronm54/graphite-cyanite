@@ -50,12 +50,14 @@ class URLs(object):
         return '{0}/metrics'.format(self.host)
 urls = None
 urllength = 8000
+maxRetention = 60 * 60 * 2
 
 
 class CyaniteReader(object):
     __slots__ = ('path',)
 
     def __init__(self, path):
+        global maxRetention
         self.path = path
 
     def fetch(self, start_time, end_time):
@@ -65,13 +67,21 @@ class CyaniteReader(object):
         if 'error' in data:
             return (start_time, end_time, end_time - start_time), []
         if len(data['series']) == 0:
-            return
-        time_info = data['from'], data['to'], data['step']
+            tmpTime = end_time + data['step']
+            data['series'][self.path] = []
+        else:
+            tmpTime = data['from']
+
+        while (tmpTime - data['step']) >= start_time :
+            tmpTime = tmpTime - data['step']
+            data['series'].get(self.path, []).insert(0, None)
+
+        time_info = tmpTime, data['to'], data['step']
         return time_info, data['series'].get(self.path, [])
 
     def get_intervals(self):
         # TODO use cyanite info
-        start = time.time() - 3600 * 2
+        start = time.time() - maxRetention
         end = max(start, time.time())
         return IntervalSet([Interval(start, end)])
 
@@ -82,6 +92,7 @@ class CyaniteFinder(object):
     def __init__(self, config=None):
         global urls
         global urllength
+        global maxRetention
         if config is not None:
             if 'urls' in config['cyanite']:
                 urls = config['cyanite']['urls']
@@ -95,6 +106,7 @@ class CyaniteFinder(object):
             if not urls:
                 urls = [settings.CYANITE_URL]
             urllength = getattr(settings, 'CYANITE_URL_LENGTH', urllength)
+            maxRetention = getattr(settings, 'CYANITE_MAX_RETENTION', maxRetention)
         urls = URLs(urls)
 
     def find_nodes(self, query):
@@ -123,6 +135,5 @@ class CyaniteFinder(object):
                 data['series'].update(tmpdata['series'])
             else:
                 data = tmpdata
-
         time_info = data['from'], data['to'], data['step']
         return time_info, data['series']
